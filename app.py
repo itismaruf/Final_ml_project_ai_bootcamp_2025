@@ -4,15 +4,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 
-
 from utils.data_exploration import (
     load_data, filter_data, dataset_overview,
     plot_style_distribution, plot_result_distribution,
     plot_feature_correlations, top_teams_by_metric
 )
 
-from utils.modeling import run_model_pipeline, split_features_by_type, validate_and_prepare_single_input, predict_with_explanation
-
+from utils.modeling import run_model_pipeline
 from utils.team_comparison import render_team_comparison
 
 # Загружаем данные один раз
@@ -52,44 +50,32 @@ if page == "📊 Знакомство с данными":
     st.plotly_chart(top_teams_by_metric(filtered_df, selected_metric, n=5))
 
 
-
-import joblib, json
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import streamlit as st
-
+# ------------------ СТРАНИЦА 2 ------------------
 if page == "🤖 Моделирование":
     st.header("🤖 Моделирование")
 
-    # --- Загружаем готовые артефакты ---
-    model = joblib.load("rf_model_clean.pkl")
-    with open("metrics_clean.json") as f:
-        metrics = json.load(f)
+    # --- Загружаем всё через общий пайплайн ---
+    artifacts = run_model_pipeline(None)  # df не нужен, т.к. офлайн-загрузка
 
-    feature_importance_df = pd.read_csv("feature_importance.csv")
-    conf_matrix = np.array(metrics.get("Confusion_matrix", []))
-
-    with open("features.json") as f:
-        features = json.load(f)
-
-    classes = model.classes_
+    model = artifacts["model"]
+    metrics = artifacts["metrics"]
+    feature_importance_df = artifacts["feature_importance_df"]
+    conf_matrix = artifacts["conf_matrix"]
+    features = artifacts["features"]
+    classes = artifacts["classes"]
+    roc_curves = artifacts["roc_curves"]
 
     # -----------------------
     # 1. Описание подхода
     # -----------------------
     st.subheader("📌 Использованный метод")
-    st.info(
-        "Мы применили - 🌲 Random Forest\n\n"
-    )
+    st.info("Мы применили - 🌲 Random Forest\n\n")
     st.markdown("---")
 
     # -----------------------
     # 2. Метрики качества
     # -----------------------
     st.subheader("📊 Метрики качества")
-
-    # Берём только числовые метрики
     numeric_metrics = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
     metrics_df = pd.DataFrame(numeric_metrics.items(), columns=["Метрика", "Значение"])
 
@@ -106,7 +92,7 @@ if page == "🤖 Моделирование":
     # 3. Confusion Matrix
     # -----------------------
     st.subheader("🔍 Confusion Matrix")
-    if conf_matrix.size > 0:
+    if conf_matrix is not None and conf_matrix.size > 0:
         fig_cm = px.imshow(
             conf_matrix, text_auto=True,
             x=classes, y=classes,
@@ -124,7 +110,7 @@ if page == "🤖 Моделирование":
     # -----------------------
     # 4. Важность признаков
     # -----------------------
-    st.subheader("🌟 Важность признаков (Random Forest)")
+    st.subheader("🌟 Важность признаков")
     fig_imp = px.bar(
         feature_importance_df,
         x="Важность", y="Признак",
@@ -139,28 +125,21 @@ if page == "🤖 Моделирование":
     # 5. ROC-кривые
     # -----------------------
     st.subheader("📈 ROC-кривые (One-vs-Rest)")
-
-    roc_curves = metrics.get("ROC_curves", {})
     if roc_curves:
         import plotly.graph_objects as go
-
         fig_roc = go.Figure()
-
         for cls, data in roc_curves.items():
             fig_roc.add_trace(go.Scatter(
                 x=data["fpr"], y=data["tpr"],
                 mode="lines",
                 name=f"Класс {cls}"
             ))
-
-        # Добавим диагональ "случайного угадывания"
         fig_roc.add_trace(go.Scatter(
             x=[0, 1], y=[0, 1],
             mode="lines",
             name="Случайное угадывание",
             line=dict(dash="dash", color="gray")
         ))
-
         fig_roc.update_layout(
             title="ROC-кривые по классам",
             xaxis_title="False Positive Rate",
@@ -168,15 +147,11 @@ if page == "🤖 Моделирование":
             legend_title="Классы",
             template="plotly_white"
         )
-
         st.plotly_chart(fig_roc, use_container_width=True)
     else:
         st.warning("ROC-кривые недоступны.")
     st.markdown("---")
 
-
-# -----------------------
-# ⚔️ Сравнение команд
-# -----------------------
+# ------------------ СТРАНИЦА 1 ------------------
 if page == "⚔️ Сравнение команд":
     render_team_comparison(df)
